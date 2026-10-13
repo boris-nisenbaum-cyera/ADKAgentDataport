@@ -33,7 +33,7 @@ here.
 | | Gates | Mechanism | Where |
 |---|---|---|---|
 | **Layer 1: who can talk to this agent at all** | Every A2A request except the public Agent Card | Google Identity Platform ID token, verified server-side | `auth_middleware.py`, wired in `main.py` -- verbatim-in-spirit copy of `../ADKAgentSecure`'s |
-| **Layer 2: what this agent can do in Cyera's Dataport warehouse** | The MCP tool calls specifically | A single static Bearer JWT (`CYERA_DATAPORT_MCP_TOKEN`) issued by Cyera's MCP gateway -- the attached mcp.json's `hosted-demov2` server | `agent.py`, via `McpToolset` |
+| **Layer 2: what this agent can do in Cyera's Dataport warehouse** | The MCP tool calls specifically | A single static Bearer JWT (`CYERA_DATAPORT_MCP_TOKEN`) issued by Cyera's own Dataport MCP gateway -- see [Section 6, Step 2](#6-setup-and-local-testing) for how to obtain one | `agent.py`, via `McpToolset` |
 
 Layer 2 here is a **static, long-lived shared credential** (same model as
 `../ADKAgentSecure`'s `CYERA_MCP_SHARED_SECRET`), **not** a
@@ -44,30 +44,30 @@ as it remains valid (see Section 9).
 
 ## 2. The MCP connection, verified live
 
-The attached `mcp.json` declares:
+An earlier reference configuration for this integration declared an SSE
+transport:
 ```json
 {"type": "sse", "url": "https://mcp.cyera.io/public/dataport/mcp/sse"}
 ```
 That exact URL was tested live before writing any code and returns a
 real 404 from the server itself (confirmed via a raw TLS handshake +
 HTTP request, not a proxy artifact) -- regardless of token validity. The
-SSE endpoint has moved or been retired since that mcp.json was generated.
+SSE endpoint has moved or been retired since.
 
-The working transport, confirmed live with the real token:
+The working transport, confirmed live with a real token:
 **Streamable HTTP against the base path** (no `/sse` suffix):
 ```
 https://mcp.cyera.io/public/dataport/mcp
 ```
-A bogus token against that URL gets a real `401 invalid_token`; the real
+A bogus token against that URL gets a real `401 invalid_token`; a valid
 token gets `200`. `agent.py` uses `StreamableHTTPConnectionParams`
-against this base URL, not `SseConnectionParams` against the literal
-mcp.json URL. `../A2A/mcp_bridge.py` already anticipates exactly this
-kind of endpoint drift via its own candidate-negotiation logic
-(`_candidates()`); this agent hardcodes the one candidate actually
-verified working rather than re-implementing that negotiation, since
-ADK's `McpToolset` takes one fixed connection, not a list to probe.
-`CYERA_DATAPORT_MCP_URL` can override this if Cyera's gateway moves
-again.
+against this base URL, not `SseConnectionParams` against the SSE-suffixed
+URL. `../A2A/mcp_bridge.py` already anticipates exactly this kind of
+endpoint drift via its own candidate-negotiation logic (`_candidates()`);
+this agent hardcodes the one candidate actually verified working rather
+than re-implementing that negotiation, since ADK's `McpToolset` takes one
+fixed connection, not a list to probe. `CYERA_DATAPORT_MCP_URL` can
+override this if Cyera's gateway moves again.
 
 **Exactly two tools are exposed** (confirmed live via `tools/list`):
 - `get_cyera_dataport_snowflake_context(file_name=None)` -- returns
@@ -223,25 +223,17 @@ own hosted Dataport MCP gateway, scoped to a specific Cyera tenant --
 no self-service way to mint one from this repo or from `gcloud`.
 
 - Ask the Cyera Dataport team for a Bearer token for the hosted Dataport
-  MCP gateway (`https://mcp.cyera.io/public/dataport/mcp`). The token
-  currently checked into this directory's own `.env`/`mcp.json` was
-  issued to `prashanth.charapalli@cyera.io` (per its own decoded, not
-  independently re-verified, JWT `owner` claim) -- if you don't know who
-  on that team to ask, that's a reasonable starting point.
+  MCP gateway (`https://mcp.cyera.io/public/dataport/mcp`).
 - Paste the raw Bearer token value (everything after `Bearer `, no
   surrounding quotes) into `.env` as:
   ```
   CYERA_DATAPORT_MCP_TOKEN=eyJhbGciOi...
   ```
-- **Tokens expire.** Decode (not verify) whatever token you're given at
-  [jwt.io](https://jwt.io) and check its `exp` claim. The token already
-  in this directory's own `.env` expires **2026-10-21** (see
-  [Section 9, Known limitations](#9-known-limitations)) -- if local runs
-  or deploys start failing with `401 invalid_token`, this is the first
-  thing to check, and the fix is the same: ask the Cyera Dataport team
-  for a fresh token and update `.env` (and Secret Manager, if already
-  deployed -- see [Section 7](#7-deploy-to-cloud-run)'s note on secret
-  rotation).
+- **Tokens expire.** If local runs or deploys start failing with
+  `401 invalid_token`, this is the first thing to check -- ask the
+  Cyera Dataport team for a fresh token and update `.env` (and Secret
+  Manager, if already deployed -- see [Section 7](#7-deploy-to-cloud-run)'s
+  note on secret rotation).
 
 ### Step 3 -- configure model credentials
 
@@ -422,13 +414,12 @@ permission across projects either).
 ## 9. Known limitations
 
 - **The Dataport MCP token is a single, static, long-lived shared
-  credential** with a real expiry: decoded (not verified) from the
-  attached mcp.json, it was issued 2026-04-20 and expires **2026-10-21**.
-  Past that date, every tool call will fail with `401 invalid_token`
-  (confirmed live to be this exact error shape against a genuinely
-  invalid token). There is no refresh flow implemented here -- rotating
-  it means getting a new token from Cyera and updating `.env`/Secret
-  Manager, then redeploying.
+  credential** with a real expiry -- past that date, every tool call
+  will fail with `401 invalid_token` (confirmed live to be this exact
+  error shape against a genuinely invalid token). There is no refresh
+  flow implemented here -- rotating it means getting a new token from
+  the Cyera Dataport team (see [Section 6, Step 2](#6-setup-and-local-testing))
+  and updating `.env`/Secret Manager, then redeploying.
 - **No formal A2A `securitySchemes` advertisement** for the Google
   Identity Platform gate -- same as `../ADKAgentSecure`; an uninformed
   caller discovers the requirement via a 401, not upfront from the Agent
@@ -438,11 +429,12 @@ permission across projects either).
   `before_tool_callback` sees (i.e. every call the LLM makes through this
   agent), but is not a substitute for a server-side control if the same
   token is ever used from anywhere else.
-- **The mcp.json-declared "sse" transport does not work** as of this
-  writing (see Section 2) -- if Cyera's gateway changes again,
-  `CYERA_DATAPORT_MCP_URL` may need updating, or (if SSE is genuinely the
-  only transport again) `agent.py` would need to switch from
-  `StreamableHTTPConnectionParams` to `SseConnectionParams`.
+- **The SSE transport described in an earlier reference configuration
+  does not work** as of this writing (see Section 2) -- if Cyera's
+  gateway changes again, `CYERA_DATAPORT_MCP_URL` may need updating, or
+  (if SSE is genuinely the only transport again) `agent.py` would need
+  to switch from `StreamableHTTPConnectionParams` to
+  `SseConnectionParams`.
 - **No pagination handling** beyond whatever `execute_dataport_query`
   itself returns -- large result sets are returned to the model as-is
   (subject to whatever the MCP server's own response size limits are).
