@@ -201,18 +201,65 @@ targeted change) and redeploy.
 
 ## 6. Setup and local testing
 
+### Step 1 -- create `.env` from `.env.example`
+
+```powershell
+cd ADKAgentDataport
+copy .env.example .env
+```
+
+`.env.example` documents every variable this agent reads, each commented
+out with its default or a worked example. **Never edit `.env.example`
+itself** -- copy it to `.env` first (as above), then edit `.env`, which
+is listed in this directory's own `.gcloudignore` so real secrets in it
+are never uploaded to Cloud Build when deploying.
+
+### Step 2 -- get a real `CYERA_DATAPORT_MCP_TOKEN`
+
+**This is the one value in `.env` you cannot make up or generate
+yourself.** `CYERA_DATAPORT_MCP_TOKEN` is a Bearer JWT issued by Cyera's
+own hosted Dataport MCP gateway, scoped to a specific Cyera tenant --
+**you must request this token from the Cyera Dataport team**; there is
+no self-service way to mint one from this repo or from `gcloud`.
+
+- Ask the Cyera Dataport team for a Bearer token for the hosted Dataport
+  MCP gateway (`https://mcp.cyera.io/public/dataport/mcp`). The token
+  currently checked into this directory's own `.env`/`mcp.json` was
+  issued to `prashanth.charapalli@cyera.io` (per its own decoded, not
+  independently re-verified, JWT `owner` claim) -- if you don't know who
+  on that team to ask, that's a reasonable starting point.
+- Paste the raw Bearer token value (everything after `Bearer `, no
+  surrounding quotes) into `.env` as:
+  ```
+  CYERA_DATAPORT_MCP_TOKEN=eyJhbGciOi...
+  ```
+- **Tokens expire.** Decode (not verify) whatever token you're given at
+  [jwt.io](https://jwt.io) and check its `exp` claim. The token already
+  in this directory's own `.env` expires **2026-10-21** (see
+  [Section 9, Known limitations](#9-known-limitations)) -- if local runs
+  or deploys start failing with `401 invalid_token`, this is the first
+  thing to check, and the fix is the same: ask the Cyera Dataport team
+  for a fresh token and update `.env` (and Secret Manager, if already
+  deployed -- see [Section 7](#7-deploy-to-cloud-run)'s note on secret
+  rotation).
+
+### Step 3 -- configure model credentials
+
+Still editing the same `.env`: fill in **one** of the two model-credential
+options and, if you're keeping the default model, `VERTEX_MODEL_LOCATION`
+-- see [Section 5, Configuring the LLM](#5-configuring-the-llm) for the
+full reference (model selection, `ADK_MODEL`, `THINKING_BUDGET`,
+`VERTEX_MODEL_LOCATION`'s own required-for-the-default-model gotcha).
+
+### Step 4 -- install and test
+
 This agent needs its own venv, separate from every other directory here
 (`google-adk[mcp]` pins a specific `mcp` SDK version incompatible with
 `../MCPServer`'s `fastmcp`/`mcp` pins):
 
 ```powershell
-cd ADKAgentDataport
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-copy .env.example .env
-# edit .env: CYERA_DATAPORT_MCP_TOKEN, plus model configuration -- see
-# Section 5, Configuring the LLM (model credentials, ADK_MODEL,
-# VERTEX_MODEL_LOCATION)
 .venv\Scripts\python.exe test_agent_local.py
 ```
 

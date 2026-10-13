@@ -1,0 +1,7 @@
+\.gcloudignore
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.local.txt
