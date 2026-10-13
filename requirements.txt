@@ -1,0 +1,39 @@
+# google-adk's MCP support (McpToolset, StreamableHTTPConnectionParams) is
+# behind its "mcp" extra, which pins the compatible mcp SDK version --
+# confirmed by trial in ../ADKAgentSecure: plain `pip install google-adk`
+# does not pull in `mcp` at all. Always install this in its own venv --
+# see README.md -- never into the same environment as ../MCPServer, whose
+# fastmcp/mcp pins are older and confirmed incompatible with this
+# package's requirements.
+# Pinned exactly (not >=2.8.0) as of this comment: confirmed live that
+# 2.9.0 introduced a genuinely different internal execution engine (a
+# "workflow"/node-based architecture replacing 2.8.0's) and is also the
+# first version where A2A message/stream (real incremental progress
+# events) actually works -- 2.8.0 flatly rejects it with "Streaming is
+# not supported by the agent". Pinning avoids silently drifting to an
+# even newer, untested version on a future rebuild, which an unpinned
+# >=2.8.0 constraint already did once (production silently ran 2.9.0
+# while every explicit test in this project's history used 2.8.0).
+google-adk[mcp]==2.9.0
+a2a-sdk>=1.1.2
+uvicorn>=0.30
+python-dotenv>=1.0
+
+# auth_middleware.py imports google.oauth2.id_token and
+# google.auth.transport.requests directly to verify Google Identity
+# Platform ID tokens. Already a transitive dependency of google-adk, but
+# pinned here explicitly since this directory's own code imports it
+# directly, not just through google-adk internals.
+google-auth>=2.30
+
+# Lets ADK_MODEL be overridden to a "claude-*" value (default remains
+# "gemini-2.5-pro" -- see agent.py); same reasoning as
+# ../ADKAgentSecure/requirements.txt.
+anthropic>=0.43.0
+
+# Optional, local dev only -- NOT needed in Cloud Run. Fixes local MCP
+# connection timeouts under a corporate TLS-inspecting proxy (self-signed
+# cert in the chain) by making Python's ssl module use the OS cert store
+# instead of certifi's. test_agent_local.py imports it if present and
+# silently skips it otherwise.
+truststore>=0.9
